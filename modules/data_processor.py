@@ -26,6 +26,9 @@ class DataCleaner:
         
         date_str = str(date_str).strip()
         
+        if date_str == '':
+            return None
+        
         if re.match(r'^\d{4}$', date_str):
             return datetime.strptime(date_str, '%Y')
         
@@ -42,7 +45,10 @@ class DataCleaner:
                 continue
         
         try:
-            return pd.to_datetime(date_str, errors='raise').to_pydatetime()
+            result = pd.to_datetime(date_str, errors='raise')
+            if pd.isna(result):
+                return None
+            return result.to_pydatetime()
         except:
             return None
 
@@ -58,10 +64,16 @@ class DataCleaner:
         
         value_str = re.sub(r'[¥￥$€£,]', '', value_str)
         
-        value_str = value_str.replace('万', '0000').replace('亿', '00000000')
+        multiplier = 1.0
+        if '万' in value_str:
+            multiplier = 10000.0
+            value_str = value_str.replace('万', '')
+        if '亿' in value_str:
+            multiplier = 100000000.0
+            value_str = value_str.replace('亿', '')
         
         try:
-            return float(value_str)
+            return float(value_str) * multiplier
         except ValueError:
             return None
 
@@ -334,11 +346,28 @@ class AdvancedDataProcessor:
         result = df.copy()
         
         if '订单日期' in result.columns:
-            result['年份'] = result['订单日期'].dt.year
-            result['月份'] = result['订单日期'].dt.month
-            result['年月'] = result['订单日期'].dt.to_period('M').astype(str)
-            result['季度'] = result['订单日期'].dt.quarter
-            result['周'] = result['订单日期'].dt.isocalendar().week.astype(int)
+            valid_date_mask = result['订单日期'].notna()
+            has_valid_dates = valid_date_mask.any()
+            
+            result['年份'] = pd.NA
+            result['月份'] = pd.NA
+            result['年月'] = ''
+            result['季度'] = pd.NA
+            result['周'] = pd.NA
+            
+            if has_valid_dates:
+                valid_dates = result.loc[valid_date_mask, '订单日期']
+                
+                result.loc[valid_date_mask, '年份'] = valid_dates.dt.year
+                result.loc[valid_date_mask, '月份'] = valid_dates.dt.month
+                result.loc[valid_date_mask, '年月'] = valid_dates.dt.to_period('M').astype(str)
+                result.loc[valid_date_mask, '季度'] = valid_dates.dt.quarter
+                result.loc[valid_date_mask, '周'] = valid_dates.dt.isocalendar().week
+            
+            result['年份'] = result['年份'].astype('Int64')
+            result['月份'] = result['月份'].astype('Int64')
+            result['季度'] = result['季度'].astype('Int64')
+            result['周'] = result['周'].astype('Int64')
         
         return result
 
@@ -358,19 +387,40 @@ class AdvancedDataProcessor:
         if self._unified_data is None or self._unified_data.empty:
             return {}
         
-        result = {
-            'date_range': (self._unified_data['订单日期'].min(), self._unified_data['订单日期'].max()),
-            'years': sorted(self._unified_data['年份'].unique().tolist()),
-            'months': sorted(self._unified_data['月份'].unique().tolist()),
-            'year_months': sorted(self._unified_data['年月'].unique().tolist()),
+        result = {}
+        
+        valid_dates = self._unified_data['订单日期'].dropna()
+        if not valid_dates.empty:
+            result['date_range'] = (valid_dates.min(), valid_dates.max())
+        
+        if '年份' in self._unified_data.columns:
+            years = self._unified_data['年份'].dropna().unique().tolist()
+            if years:
+                result['years'] = sorted(years)
+        
+        if '月份' in self._unified_data.columns:
+            months = self._unified_data['月份'].dropna().unique().tolist()
+            if months:
+                result['months'] = sorted(months)
+        
+        if '年月' in self._unified_data.columns:
+            year_months = self._unified_data['年月'].replace('', pd.NA).dropna().unique().tolist()
+            if year_months:
+                result['year_months'] = sorted(year_months)
+        
+        dimension_mapping = {
+            '地区': 'regions',
+            '类别': 'categories',
+            '销售人员': 'salespeople',
+            '品牌': 'brands',
         }
         
-        for col in ['地区', '类别', '销售人员', '品牌']:
+        for col, key_name in dimension_mapping.items():
             if col in self._unified_data.columns:
                 unique_vals = sorted(self._unified_data[col].dropna().unique().tolist())
                 unique_vals = [v for v in unique_vals if v not in ['', '未知']]
                 if unique_vals:
-                    result[col.lower() + 's'] = unique_vals
+                    result[key_name] = unique_vals
         
         return result
 

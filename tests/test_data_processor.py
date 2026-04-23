@@ -330,5 +330,223 @@ class TestIntegration:
         assert target_info['has_target'] == True
 
 
+class TestDirtyDataScenarios:
+    def test_with_null_dates(self):
+        orders_data = [
+            {'订单日期': '2024-01-15', '地区': '华东', '类别': '电子产品', '产品名': 'iPhone 15', '销售额': 8999, '利润': 2100, '销售人员': '张三'},
+            {'订单日期': None, '地区': '华北', '类别': '服装', '产品名': 'Nike运动鞋', '销售额': 899, '利润': 180, '销售人员': '李四'},
+            {'订单日期': '', '地区': '华南', '类别': '家居用品', '产品名': '美的空调', '销售额': 4599, '利润': 920, '销售人员': '王五'},
+        ]
+        orders_df = pd.DataFrame(orders_data)
+        
+        processor = AdvancedDataProcessor()
+        
+        csv_buffer = BytesIO()
+        orders_df.to_csv(csv_buffer, index=False)
+        csv_buffer.seek(0)
+        
+        processor.load_dataset(csv_buffer, 'test_orders.csv')
+        
+        result = processor.process_and_unify()
+        
+        assert result.success
+        
+        stats = processor.get_cleaning_stats()
+        assert stats['null_rows_removed'] == 2
+        assert stats['final_count'] == 1
+        
+        unified_df = processor.get_unified_data()
+        assert unified_df is not None
+        assert len(unified_df) == 1
+        assert unified_df['订单日期'].iloc[0] == pd.Timestamp('2024-01-15')
+
+    def test_with_invalid_dates(self):
+        orders_data = [
+            {'订单日期': '2024-01-15', '地区': '华东', '类别': '电子产品', '产品名': 'iPhone 15', '销售额': 8999, '利润': 2100, '销售人员': '张三'},
+            {'订单日期': '无效日期', '地区': '华北', '类别': '服装', '产品名': 'Nike运动鞋', '销售额': 899, '利润': 180, '销售人员': '李四'},
+            {'订单日期': '2024/13/01', '地区': '华南', '类别': '家居用品', '产品名': '美的空调', '销售额': 4599, '利润': 920, '销售人员': '王五'},
+            {'订单日期': 'abcdef', '地区': '西南', '类别': '食品饮料', '产品名': '蒙牛牛奶', '销售额': 68, '利润': 14, '销售人员': '赵六'},
+        ]
+        orders_df = pd.DataFrame(orders_data)
+        
+        processor = AdvancedDataProcessor()
+        
+        csv_buffer = BytesIO()
+        orders_df.to_csv(csv_buffer, index=False)
+        csv_buffer.seek(0)
+        
+        processor.load_dataset(csv_buffer, 'test_orders.csv')
+        
+        result = processor.process_and_unify()
+        
+        assert result.success
+        
+        stats = processor.get_cleaning_stats()
+        assert stats['null_rows_removed'] == 3
+        assert stats['final_count'] == 1
+        
+        unified_df = processor.get_unified_data()
+        assert unified_df is not None
+        assert len(unified_df) == 1
+
+    def test_mixed_valid_and_invalid_dates(self):
+        orders_data = [
+            {'订单日期': '2024-01-15', '地区': '华东', '类别': '电子产品', '产品名': 'iPhone 15', '销售额': 8999, '利润': 2100, '销售人员': '张三'},
+            {'订单日期': '2024/02/20', '地区': '华北', '类别': '服装', '产品名': 'Nike运动鞋', '销售额': 899, '利润': 180, '销售人员': '李四'},
+            {'订单日期': '无效日期', '地区': '华南', '类别': '家居用品', '产品名': '美的空调', '销售额': 4599, '利润': 920, '销售人员': '王五'},
+            {'订单日期': '2024年3月10日', '地区': '西南', '类别': '食品饮料', '产品名': '蒙牛牛奶', '销售额': 68, '利润': 14, '销售人员': '赵六'},
+            {'订单日期': '', '地区': '西北', '类别': '美妆护肤', '产品名': '兰蔻小黑瓶', '销售额': 1080, '利润': 270, '销售人员': '钱七'},
+            {'订单日期': '15-04-2024', '地区': '东北', '类别': '电子产品', '产品名': 'MacBook Pro', '销售额': 14999, '利润': 3500, '销售人员': '孙八'},
+        ]
+        orders_df = pd.DataFrame(orders_data)
+        
+        processor = AdvancedDataProcessor()
+        
+        csv_buffer = BytesIO()
+        orders_df.to_csv(csv_buffer, index=False)
+        csv_buffer.seek(0)
+        
+        processor.load_dataset(csv_buffer, 'test_orders.csv')
+        
+        result = processor.process_and_unify()
+        
+        assert result.success
+        
+        stats = processor.get_cleaning_stats()
+        assert stats['null_rows_removed'] == 2
+        assert stats['final_count'] == 4
+        
+        unified_df = processor.get_unified_data()
+        assert unified_df is not None
+        assert len(unified_df) == 4
+        
+        unique_values = processor.get_unique_values()
+        assert 'date_range' in unique_values
+        assert 'years' in unique_values
+        assert 2024 in unique_values['years']
+
+    def test_time_columns_with_nulls(self):
+        orders_data = [
+            {'订单日期': '2024-01-15', '地区': '华东', '类别': '电子产品', '产品名': 'iPhone 15', '销售额': 8999, '利润': 2100, '销售人员': '张三'},
+            {'订单日期': '2024-02-20', '地区': '华北', '类别': '服装', '产品名': 'Nike运动鞋', '销售额': 899, '利润': 180, '销售人员': '李四'},
+            {'订单日期': '无效日期', '地区': '华南', '类别': '家居用品', '产品名': '美的空调', '销售额': 4599, '利润': 920, '销售人员': '王五'},
+        ]
+        orders_df = pd.DataFrame(orders_data)
+        
+        processor = AdvancedDataProcessor()
+        
+        csv_buffer = BytesIO()
+        orders_df.to_csv(csv_buffer, index=False)
+        csv_buffer.seek(0)
+        
+        processor.load_dataset(csv_buffer, 'test_orders.csv')
+        processor.process_and_unify()
+        
+        unified_df = processor.get_unified_data()
+        assert unified_df is not None
+        
+        assert '年份' in unified_df.columns
+        assert '月份' in unified_df.columns
+        assert '年月' in unified_df.columns
+        assert '季度' in unified_df.columns
+        assert '周' in unified_df.columns
+        
+        assert unified_df['年份'].dtype == 'Int64'
+        assert unified_df['月份'].dtype == 'Int64'
+        assert unified_df['季度'].dtype == 'Int64'
+        assert unified_df['周'].dtype == 'Int64'
+        
+        assert 2024 in unified_df['年份'].values
+        assert 1 in unified_df['月份'].values
+        assert 2 in unified_df['月份'].values
+
+    def test_empty_date_column(self):
+        orders_data = [
+            {'订单日期': '', '地区': '华东', '类别': '电子产品', '产品名': 'iPhone 15', '销售额': 8999, '利润': 2100, '销售人员': '张三'},
+            {'订单日期': None, '地区': '华北', '类别': '服装', '产品名': 'Nike运动鞋', '销售额': 899, '利润': 180, '销售人员': '李四'},
+            {'订单日期': '无效', '地区': '华南', '类别': '家居用品', '产品名': '美的空调', '销售额': 4599, '利润': 920, '销售人员': '王五'},
+        ]
+        orders_df = pd.DataFrame(orders_data)
+        
+        processor = AdvancedDataProcessor()
+        
+        csv_buffer = BytesIO()
+        orders_df.to_csv(csv_buffer, index=False)
+        csv_buffer.seek(0)
+        
+        processor.load_dataset(csv_buffer, 'test_orders.csv')
+        result = processor.process_and_unify()
+        
+        assert result.success
+        
+        stats = processor.get_cleaning_stats()
+        assert stats['null_rows_removed'] == 3
+        
+        unified_df = processor.get_unified_data()
+        assert unified_df is not None
+        assert len(unified_df) == 0
+
+    def test_get_unique_values_with_missing_dates(self):
+        orders_data = [
+            {'订单日期': '2024-01-15', '地区': '华东', '类别': '电子产品', '产品名': 'iPhone 15', '销售额': 8999, '利润': 2100, '销售人员': '张三'},
+            {'订单日期': None, '地区': '华北', '类别': '服装', '产品名': 'Nike运动鞋', '销售额': 899, '利润': 180, '销售人员': '李四'},
+            {'订单日期': '2024-03-20', '地区': '华东', '类别': '电子产品', '产品名': 'MacBook Pro', '销售额': 14999, '利润': 3500, '销售人员': '张三'},
+        ]
+        orders_df = pd.DataFrame(orders_data)
+        
+        processor = AdvancedDataProcessor()
+        
+        csv_buffer = BytesIO()
+        orders_df.to_csv(csv_buffer, index=False)
+        csv_buffer.seek(0)
+        
+        processor.load_dataset(csv_buffer, 'test_orders.csv')
+        processor.process_and_unify()
+        
+        stats = processor.get_cleaning_stats()
+        assert stats['null_rows_removed'] == 1
+        
+        unique_values = processor.get_unique_values()
+        
+        assert 'date_range' in unique_values
+        assert 'years' in unique_values
+        assert 2024 in unique_values['years']
+        assert 'regions' in unique_values
+        assert '华东' in unique_values['regions']
+        assert '华北' not in unique_values['regions']
+
+    def test_various_date_formats(self):
+        orders_data = [
+            {'订单日期': '2024-01-15', '地区': '华东', '类别': '电子产品', '产品名': 'iPhone 15', '销售额': 8999, '利润': 2100, '销售人员': '张三'},
+            {'订单日期': '2024/02/20', '地区': '华北', '类别': '服装', '产品名': 'Nike运动鞋', '销售额': 899, '利润': 180, '销售人员': '李四'},
+            {'订单日期': '2024年3月10日', '地区': '华南', '类别': '家居用品', '产品名': '美的空调', '销售额': 4599, '利润': 920, '销售人员': '王五'},
+            {'订单日期': '15-04-2024', '地区': '西南', '类别': '食品饮料', '产品名': '蒙牛牛奶', '销售额': 68, '利润': 14, '销售人员': '赵六'},
+            {'订单日期': '05/20/2024', '地区': '西北', '类别': '美妆护肤', '产品名': '兰蔻小黑瓶', '销售额': 1080, '利润': 270, '销售人员': '钱七'},
+        ]
+        orders_df = pd.DataFrame(orders_data)
+        
+        processor = AdvancedDataProcessor()
+        
+        csv_buffer = BytesIO()
+        orders_df.to_csv(csv_buffer, index=False)
+        csv_buffer.seek(0)
+        
+        processor.load_dataset(csv_buffer, 'test_orders.csv')
+        result = processor.process_and_unify()
+        
+        assert result.success
+        
+        stats = processor.get_cleaning_stats()
+        assert stats['null_rows_removed'] == 0
+        assert stats['final_count'] == 5
+        
+        unified_df = processor.get_unified_data()
+        assert unified_df is not None
+        assert len(unified_df) == 5
+        
+        metrics = processor.calculate_metrics(unified_df)
+        assert metrics['total_sales'] == 8999 + 899 + 4599 + 68 + 1080
+
+
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

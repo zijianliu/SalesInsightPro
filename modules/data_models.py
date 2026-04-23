@@ -226,13 +226,13 @@ class StandardFields:
     def infer_data_type(cls, columns: List[str]) -> DataType:
         col_set = {c.lower() for c in columns}
         
-        orders_signals = {"订单日期", "下单时间", "date", "order_date", "销售额", "sales", "amount"}
+        orders_signals = {"订单日期", "下单时间", "date", "order_date", "transaction_date", "销售额", "sales", "amount", "revenue", "订单号", "order_id", "产品", "product"}
         orders_match = sum(1 for s in orders_signals if any(s in c for c in col_set))
         
-        products_signals = {"类别", "category", "成本", "cost", "品牌", "brand"}
+        products_signals = {"类别", "category", "成本", "cost", "品牌", "brand", "商品", "sku", "售价", "price"}
         products_match = sum(1 for s in products_signals if any(s in c for c in col_set))
         
-        targets_signals = {"目标", "target", "销售目标", "目标销售额"}
+        targets_signals = {"目标", "target", "销售目标", "目标销售额", "goal", "quota", "budget", "年月", "月份", "year_month", "month", "period"}
         targets_match = sum(1 for s in targets_signals if any(s in c for c in col_set))
         
         if targets_match >= 2:
